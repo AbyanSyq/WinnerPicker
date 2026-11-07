@@ -100,7 +100,12 @@
   #confetti{position:fixed;inset:0;z-index:12;pointer-events:none}
 
   #revealBtn{position:absolute;right:24px;bottom:24px;font-size:20px;z-index:7}
-  #revealBtn:disabled{opacity:.5;cursor:default}
+  /* the card to click next pulses gold */
+  .card.clickable{cursor:pointer}
+  .card.clickable .lift{animation:beckon 1.6s ease-in-out infinite}
+  .card.clickable:focus-visible{outline:none}
+  .card.clickable:focus-visible .lift{outline:3px solid #fff;outline-offset:6px}
+  @keyframes beckon{0%,100%{box-shadow:0 0 0 0 #ffcc3300}50%{box-shadow:0 0 3vh .8vh #ffcc33cc}}
 
   /* volume sliders, bottom-left */
   #mixer{position:fixed;left:16px;bottom:16px;z-index:11;display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:var(--muted);opacity:.4;transition:opacity .2s}
@@ -140,7 +145,7 @@
 
 <section id="final" hidden>
   <div id="podium"></div>
-  <button id="revealBtn" type="button">REVEAL</button>
+  <button id="revealBtn" type="button" hidden>Main Lagi</button>
 </section>
 
 <div id="mixer">
@@ -160,7 +165,8 @@ const TARGET = { x: 0.494, y: 0.757 };               // target-marker centre ins
 const ROPE = { x: 0.5, w: 4 / 360 };                 // rope centre + thickness inside the GIF frame
 const GIF_RATIO = 362 / 360, GIF_SCALE = 1.4;        // GIF width = 1.4x poster width
 const FORCED_MISSES = 2, PAUSE = 700;
-const PODIUM = { 1: { x: 50, h: 20 }, 2: { x: 30, h: 13 }, 3: { x: 70, h: 8 } }; // x in %, h in vh
+// x in %, block height h in vh. Block 1 = 50 - CARD_H/2 so the champion card sits at screen centre; 2 and 3 step down.
+const PODIUM = { 1: { x: 50, h: 36.5 }, 2: { x: 30, h: 29.5 }, 3: { x: 70, h: 24.5 } };
 // ms from the reveal sound starting to the card flipping open; the hype build-up fills this time
 const REVEAL_DELAY_3RD = 2080;   // juara 3
 const REVEAL_DELAY_CHAMP = 6000; // juara 1 & 2
@@ -183,6 +189,33 @@ document.getElementById('sfxVol').oninput = e => setVol(SFX, +e.target.value);
 document.getElementById('bgmVol').oninput = e => setVol(BGMS, +e.target.value);
 setVol(SFX, +document.getElementById('sfxVol').value);
 setVol(BGMS, +document.getElementById('bgmVol').value);
+
+// Synthesized card sounds (no audio file): a band-passed noise burst = card flick. Follows the SFX slider.
+let actx, noise;
+const audioCtx = () => { actx ??= new AudioContext(); if (actx.state === 'suspended') actx.resume(); return actx; };
+function cardSfx({ freq = 3200, dur = 0.07, gain = 0.6, q = 1.2 } = {}) {
+  try {
+    const ctx = audioCtx(), t = ctx.currentTime;
+    if (!noise) {
+      noise = ctx.createBuffer(1, ctx.sampleRate * 0.4, ctx.sampleRate);
+      const d = noise.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = noise;
+    bp.type = 'bandpass';
+    bp.frequency.value = freq * (0.85 + Math.random() * 0.3); // slight variation so repeats don't sound robotic
+    bp.Q.value = q;
+    const v = Math.max(gain * +document.getElementById('sfxVol').value, 0.0001);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp).connect(g).connect(ctx.destination);
+    src.start(t, Math.random() * 0.3, dur + 0.02);
+  } catch { /* no Web Audio: stay silent */ }
+}
+// a quick run of flicks, like riffling a deck
+const riffle = (n, ms, freq = 2600) => { for (let i = 0; i < n; i++) setTimeout(() => cardSfx({ freq: freq + i * 120, dur: 0.04, gain: 0.45 }), i * ms / n); };
 
 const $ = s => document.querySelector(s);
 const el = (tag, cls) => Object.assign(document.createElement(tag), { className: cls });
@@ -245,12 +278,13 @@ function readSetup() {
 
 $('#startBtn').onclick = () => {
   if (!readSetup()) return;
+  audioCtx(); // unlock Web Audio from this click
   bgmWin.pause();
   play(bgm); // started from this click so browser autoplay rules allow it
   startGame();
 };
 
-$('#previewBtn').onclick = () => { if (readSetup()) enterFinal(); }; // skip the picker, straight to the podium
+$('#previewBtn').onclick = () => { if (readSetup()) { audioCtx(); enterFinal(); } }; // skip the picker, straight to the podium
 
 // ---------- grid ----------
 function startGame() {
@@ -414,9 +448,7 @@ async function enterFinal(fromSlots = []) {
   bgm.pause();
   play(sfxTop3);
   play(bgmWin);
-  const btn = $('#revealBtn');
-  btn.disabled = true;
-  btn.textContent = 'REVEAL';
+  $('#revealBtn').hidden = true;
   revealStep = 0;
   const top3Done = Promise.race([ // SFXWinner finished, or a fallback if it is missing/blocked
     new Promise(r => sfxTop3.addEventListener('ended', r, { once: true })),
@@ -447,11 +479,11 @@ async function enterFinal(fromSlots = []) {
 
   await top3Done;
   await shuffleAndDeal(cardEls);
-  btn.disabled = false;
+  armCards();
 }
 
 async function shuffleAndDeal(cardEls) {
-  for (const c of cardEls) { c.classList.replace('open', 'down'); await sleep(150); }
+  for (const c of cardEls) { c.classList.replace('open', 'down'); cardSfx({ freq: 1800, dur: 0.12, gain: 0.5 }); await sleep(150); }
   await sleep(750);
 
   // fast swaps, speeding up from 320 to 120 ms; one card arcs over, the other under
@@ -460,15 +492,19 @@ async function shuffleAndDeal(cardEls) {
     [a.dataset.x, b.dataset.x] = [b.dataset.x, a.dataset.x];
     a.style.zIndex = 4;
     b.style.zIndex = '';
+    cardSfx();                                               // flick as the pair lifts off
+    setTimeout(() => cardSfx({ freq: 3800, dur: 0.05, gain: 0.45 }), ms * 0.55); // second card crossing
     await Promise.all([
       move(a, +a.dataset.x, ROW.y, ms, { arc: -70, tilt: -10 }),
       move(b, +b.dataset.x, ROW.y, ms, { arc: 70, tilt: 10 }),
     ]);
   }
   // gather into one stack, then spread out again
+  riffle(8, 260);
   await Promise.all(cardEls.map((c, i) => (c.style.zIndex = i + 3, move(c, 50, ROW.y - i, 260))));
   await sleep(150);
   const xs = shuffle([...ROW.xs]);
+  riffle(3, 200, 3000);
   await Promise.all(cardEls.map((c, i) => (c.dataset.x = xs[i], move(c, xs[i], ROW.y, 280, { easing: 'cubic-bezier(.2,.9,.3,1.2)' }))));
   cardEls.forEach(c => c.style.zIndex = '');
   await sleep(200);
@@ -479,6 +515,8 @@ async function shuffleAndDeal(cardEls) {
   await Promise.all(cardEls.map(async (c, i) => {
     await sleep(i * 200);
     const s = seat(ranks[i]);
+    cardSfx({ freq: 1600, dur: 0.14, gain: 0.55, q: 0.8 });                  // thwip as it is thrown
+    setTimeout(() => cardSfx({ freq: 700, dur: 0.06, gain: 0.7, q: 0.7 }), 450); // tap as it lands
     return move(c, s.x, s.y, 700, { arc: -90, tilt: (i - 1) * 8, easing: 'cubic-bezier(.3,1.25,.5,1)' });
   }));
 }
@@ -579,17 +617,32 @@ const confetti = (() => {
   };
 })();
 
-// Click 1: juara 3. Click 2: juara 2 & 1 together. Click 3: "Main Lagi".
-$('#revealBtn').onclick = async () => {
-  const btn = $('#revealBtn');
-  if (revealStep === REVEAL_STEPS.length) { [bgm, bgmWin].forEach(a => a.pause()); return show('#setup'); }
+// Reveal by clicking the card itself: first the card on podium 3, then the card on podium 1 or 2 (opens both).
+// Only the next step's cards are clickable; none while a reveal is running.
+function armCards(active = true) {
+  const next = active && REVEAL_STEPS[revealStep];
+  document.querySelectorAll('.card').forEach(c => {
+    const on = !!next && next.ranks.includes(+c.dataset.rank);
+    c.classList.toggle('clickable', on);
+    c.tabIndex = on ? 0 : -1;
+    if (on) c.setAttribute('role', 'button'); else c.removeAttribute('role');
+  });
+}
+
+async function reveal() {
   const { ranks, sound, delay } = REVEAL_STEPS[revealStep++];
-  btn.disabled = true;
+  armCards(false);
   play(sound);
   await hypeAndFlip(ranks.map(r => $(`.card[data-rank="${r}"]`)), Math.max(delay, MIN_HYPE), ranks.includes(1));
-  btn.disabled = false;
-  if (revealStep === REVEAL_STEPS.length) btn.textContent = 'Main Lagi';
+  armCards();
+  if (revealStep === REVEAL_STEPS.length) $('#revealBtn').hidden = false; // all open: offer "Main Lagi"
+}
+
+$('#podium').onclick = e => { if (e.target.closest('.card.clickable')) reveal(); };
+$('#podium').onkeydown = e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.card.clickable')) { e.preventDefault(); reveal(); }
 };
+$('#revealBtn').onclick = () => { [bgm, bgmWin].forEach(a => a.pause()); show('#setup'); }; // "Main Lagi"
 
 renderSetup();
 </script>
