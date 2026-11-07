@@ -40,7 +40,7 @@
 
   /* grid: 2 rows (n/2 columns), centred; slot size set in layoutGrid() */
   #game{height:100%;padding:20vh 4vw 3vh}
-  #grid{height:100%;display:flex;flex-wrap:wrap;justify-content:center;align-content:center;gap:var(--gap)}
+  #grid{height:100%;margin:0 auto;display:flex;flex-wrap:wrap;justify-content:center;align-content:center;gap:var(--gap)}
   .slot{position:relative;width:var(--w);height:var(--h);border-radius:10px}
   .poster{height:100%;display:flex;flex-direction:column;background:var(--panel);border-radius:10px;overflow:hidden;box-shadow:0 4px 12px #0006}
   .poster img{flex:1;min-height:0;width:100%;object-fit:cover}
@@ -302,11 +302,17 @@ function startGame() {
   $('#playBtn').hidden = false;
 }
 
-// 2 rows of ceil(n/2) posters; biggest 2:3 poster size that fits both width and height.
+// One row if that gives the bigger posters, otherwise 2 rows of ceil(n/2) (equal rows; odd n puts one less below).
+// Poster = biggest 2:3 size that fits; max-width pins exactly `cols` posters per row so flex-wrap can't squeeze in more.
 function layoutGrid() {
-  const g = $('#grid'), cols = Math.ceil(cards.length / 2), gap = innerHeight * 0.02, titleH = 26;
-  const w = Math.floor(Math.min((g.clientWidth - gap * (cols - 1)) / cols, ((g.clientHeight - gap) / 2 - titleH) / 1.5));
-  g.style.cssText = `--gap:${gap}px;--w:${w}px;--h:${w * 1.5 + titleH}px`;
+  const g = $('#grid'), n = cards.length, gap = innerHeight * 0.02, titleH = 26;
+  g.style.cssText = ''; // measure the free space, not the previous max-width
+  const fit = rows => {
+    const cols = Math.ceil(n / rows);
+    return { cols, w: Math.floor(Math.min((g.clientWidth - gap * (cols - 1)) / cols, ((g.clientHeight - gap * (rows - 1)) / rows - titleH) / 1.5)) };
+  };
+  const one = fit(1), two = fit(2), { cols, w } = n > 1 && two.w > one.w ? two : one;
+  g.style.cssText = `--gap:${gap}px;--w:${w}px;--h:${w * 1.5 + titleH}px;max-width:${Math.ceil(cols * w + (cols - 1) * gap) + 1}px`;
 }
 addEventListener('resize', () => { if (!$('#game').hidden) layoutGrid(); });
 
