@@ -65,16 +65,41 @@
   #rope{position:absolute;top:0;transform:translateX(-50%);background:linear-gradient(90deg,#5a4505,#6f4c24 30%,#1a3002 55%,#627d35)}
   #gif{position:absolute;left:0}
 
-  /* podium */
-  #final{height:100%;position:relative}
-  .block{position:absolute;bottom:0;width:22vh;transform:translateX(-50%);display:flex;justify-content:center;padding-top:1vh;border-radius:8px 8px 0 0;background:linear-gradient(#ffd75e,#c8901a);color:#5a3a00;font-size:6vh;font-weight:900;line-height:1}
-  .fin{position:absolute;width:16vh;transform:translateX(-50%);display:flex;flex-direction:column;transition:left .9s ease-in-out,top .9s ease-in-out}
-  .fin img{height:24vh;width:100%;object-fit:cover;border-radius:10px;box-shadow:0 8px 24px #000a;transition:box-shadow .6s}
-  .fin .title{font-size:2vh;line-height:1.25;font-weight:700;text-align:center;padding:.6vh 0 .4vh;overflow-wrap:anywhere}
-  .fin .badge{position:absolute;top:-2vh;right:-2vh;width:6vh;height:6vh;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#1a1400;font-size:2.6vh;font-weight:900;box-shadow:0 4px 12px #000a;transform:scale(0);transition:transform .4s .8s cubic-bezier(.3,1.6,.5,1)}
-  .fin.revealed .badge{transform:scale(1)}
-  .fin.revealed[data-rank="1"] img{box-shadow:0 0 48px 10px var(--accent)}
-  #revealBtn{position:absolute;right:24px;bottom:24px;font-size:20px;z-index:2}
+  /* podium (fixed overlay so it can cross-fade over the grid) */
+  #final{position:fixed;inset:0}
+  #podium{position:absolute;inset:0}
+  .block{position:absolute;bottom:0;z-index:2;width:22vh;transform:translateX(-50%);display:flex;justify-content:center;padding-top:1vh;border-radius:8px 8px 0 0;background:linear-gradient(#ffd75e,#c8901a);color:#5a3a00;font-size:6vh;font-weight:900;line-height:1}
+
+  /* cards: .card moves, .lift hypes, .flip turns (0 = poster, 180deg = card_back) */
+  :root{--card-h:27vh} /* keep in sync with CARD_H */
+  .card{position:absolute;z-index:3;height:var(--card-h);width:calc(var(--card-h) * 1657 / 2345)}
+  .card.hot{z-index:6}
+  .lift{position:relative;width:100%;height:100%;perspective:1400px;border-radius:1.2vh}
+  .flip{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.4,0,.2,1)}
+  .card.down .flip{transform:rotateY(180deg)}
+  .face{position:absolute;inset:0;border-radius:1.2vh;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:0 1vh 3vh #000a;transition:box-shadow .6s}
+  .face img{display:block;width:100%;height:100%;object-fit:cover}
+  .front{background:var(--panel);outline:.35vh solid var(--accent);outline-offset:-.35vh}
+  .back{transform:rotateY(180deg)}
+  .back img{object-fit:fill}
+  .card .title{position:absolute;left:50%;bottom:calc(100% + 4.5vh);width:26vh;transform:translateX(-50%);text-align:center;font-size:2.2vh;line-height:1.25;font-weight:800;overflow-wrap:anywhere;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .4s}
+  .card.open .title{opacity:1}
+  .card.revealed .title{transition-delay:.5s}
+  .badge{position:absolute;top:-2vh;right:-2vh;z-index:1;width:6vh;height:6vh;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#1a1400;font-size:2.6vh;font-weight:900;box-shadow:0 4px 12px #000a;transform:scale(0);transition:transform .4s .6s cubic-bezier(.3,1.6,.5,1)}
+  .card.revealed .badge{transform:scale(1)}
+  .card.revealed[data-rank="1"] .front{box-shadow:0 0 6vh 1.5vh var(--accent)}
+
+  /* reveal fx: light rays behind a card, stage dim + beams, white flash, confetti */
+  .rays{position:absolute;z-index:1;width:64vh;height:64vh;border-radius:50%;pointer-events:none;opacity:0;transform:translate(-50%,-50%);background:repeating-conic-gradient(#ffd75e66 0deg 7deg,transparent 7deg 18deg);-webkit-mask:radial-gradient(circle,#000 15%,transparent 68%);mask:radial-gradient(circle,#000 15%,transparent 68%)}
+  .rays.hot{z-index:5}
+  .rays.champ{opacity:.55;animation:spin 24s linear infinite}
+  @keyframes spin{from{transform:translate(-50%,-50%) rotate(0)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+  .dim{position:absolute;inset:0;z-index:4;pointer-events:none;opacity:0;transition:opacity .5s;background-repeat:no-repeat}
+  .dim.on{opacity:1}
+  #flash{position:fixed;inset:0;z-index:12;background:#fff;opacity:0;pointer-events:none}
+  #confetti{position:fixed;inset:0;z-index:12;pointer-events:none}
+
+  #revealBtn{position:absolute;right:24px;bottom:24px;font-size:20px;z-index:7}
   #revealBtn:disabled{opacity:.5;cursor:default}
 
   /* volume sliders, bottom-left */
@@ -124,6 +149,8 @@
 </div>
 
 <div id="spot"></div>
+<div id="flash"></div>
+<canvas id="confetti"></canvas>
 <div id="bungee" hidden><div id="rope"></div><img id="gif" alt=""></div>
 
 <script>
@@ -134,9 +161,14 @@ const ROPE = { x: 0.5, w: 4 / 360 };                 // rope centre + thickness 
 const GIF_RATIO = 362 / 360, GIF_SCALE = 1.4;        // GIF width = 1.4x poster width
 const FORCED_MISSES = 2, PAUSE = 700;
 const PODIUM = { 1: { x: 50, h: 20 }, 2: { x: 30, h: 13 }, 3: { x: 70, h: 8 } }; // x in %, h in vh
-// ms between the reveal sound and the podium animation
-const REVEAL_DELAY_3RD = 0;   // juara 3
+// ms from the reveal sound starting to the card flipping open; the hype build-up fills this time
+const REVEAL_DELAY_3RD = 2080;   // juara 3
 const REVEAL_DELAY_CHAMP = 6000; // juara 1 & 2
+const MIN_HYPE = 1500;           // build-up never shorter than this
+const SHUFFLE_SWAPS = 10;        // fast swaps after the cards turn face-down
+const CARD_H = 27;               // vh, keep in sync with --card-h
+const CARD_W = CARD_H * 1657 / 2345; // card_back.png ratio
+const ROW = { y: 36, xs: [30, 50, 70] }; // centre row before dealing (top in vh, x in %)
 
 const sfx = new Audio('sfx.mp3');                    // each grab0
 const sfxTop3 = new Audio('SFXWinner.mp3');          // top 3 decided
@@ -270,14 +302,13 @@ $('#playBtn').onclick = async () => {
   console.assert(alive.length === 3 && alive.every(isWinner) && cards.every(c => missed.has(c)),
     'finalists must be the chosen winners and every nominee must have missed once', alive);
   await sleep(800);
-  enterFinal();
+  enterFinal(winners.map(id => cards.find(c => c.nom.id === id).slot));
 };
 
-function enterFinal() {
-  bgm.pause();
-  play(sfxTop3); // top 3 decided
-  play(bgmWin);
-  showFinal();
+// Spotlight beam: a cone from the screen top widening onto rect. Use as a background layer sized 100% x rect.bottom.
+function beam(r, alpha = '26') {
+  const cx = r.left + r.width / 2, half = Math.atan2(r.width * 0.7, r.top + r.height / 2) * 180 / Math.PI;
+  return `conic-gradient(from ${180 - half}deg at ${cx}px 0, #ffeeb4${alpha} 0deg ${2 * half}deg, transparent 0)`;
 }
 
 async function grabRound(slot, miss) {
@@ -288,9 +319,7 @@ async function grabRound(slot, miss) {
 
   // Spotlight: beam from the screen top widening onto the poster + dark stage around a light pool.
   const spot = $('#spot'), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  const half = Math.atan2(r.width * 0.7, cy) * 180 / Math.PI;
-  spot.style.background =
-    `conic-gradient(from ${180 - half}deg at ${cx}px 0, #ffeeb426 0deg ${2 * half}deg, transparent 0),` +
+  spot.style.background = beam(r) + ',' +
     `radial-gradient(ellipse ${r.width}px ${r.height * 0.8}px at ${cx}px ${cy}px, transparent 60%, #000000c0 100%)`;
   spot.style.backgroundSize = `100% ${r.bottom}px, 100% 100%`; // beam stops at the poster
   spot.style.backgroundRepeat = 'no-repeat';
@@ -333,30 +362,222 @@ async function grabRound(slot, miss) {
 }
 
 // ---------- podium ----------
-function showFinal() {
-  show('#final');
-  const xs = shuffle([30, 50, 70]); // finalists start in random order so position leaks nothing
-  $('#podium').replaceChildren(
-    ...[1, 2, 3].map(rank => {
-      const b = el('div', 'block');
-      b.textContent = rank;
-      Object.assign(b.style, { left: PODIUM[rank].x + '%', height: PODIUM[rank].h + 'vh' });
-      return b;
-    }),
-    ...winners.map((id, i) => {
-      const nom = noms.find(n => n.id === id), f = el('div', 'fin');
-      f.innerHTML = '<img alt=""><span class="title"></span><span class="badge"></span>';
-      f.querySelector('img').src = nom.src;
-      f.querySelector('.title').textContent = nom.title;
-      f.querySelector('.badge').textContent = '#' + (i + 1);
-      f.dataset.rank = i + 1;
-      Object.assign(f.style, { left: xs[i] + '%', top: '21vh' }); // below the header
-      return f;
-    })
-  );
-  revealStep = 0;
-  $('#revealBtn').textContent = 'REVEAL';
+const seat = rank => ({ x: PODIUM[rank].x, y: 100 - PODIUM[rank].h - CARD_H }); // card resting on its block
+const place = (card, x, y) => Object.assign(card.style, { left: `calc(${x}% - ${CARD_W / 2}vh)`, top: y + 'vh' });
+
+// The card a face shows is decided by rank; called again while face-down when dealing.
+function setFace(card, rank) {
+  const nom = noms.find(n => n.id === winners[rank - 1]);
+  card.dataset.rank = rank;
+  card.querySelector('.front img').src = nom.src;
+  card.querySelector('.title').textContent = nom.title;
+  card.querySelector('.badge').textContent = '#' + rank;
 }
+
+// Moves a card to (x %, y vh) with a FLIP animation, optionally arcing (px) and tilting on the way.
+function move(card, x, y, ms, { arc = 0, tilt = 0, easing = 'cubic-bezier(.5,0,.3,1)' } = {}) {
+  const a = card.getBoundingClientRect();
+  place(card, x, y);
+  const b = card.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
+  return card.animate([
+    { transform: `translate(${dx}px,${dy}px)` },
+    { transform: `translate(${dx / 2}px,${dy / 2 + arc}px) rotate(${tilt}deg)`, offset: .5 },
+    { transform: 'none' },
+  ], { duration: ms, easing }).finished;
+}
+
+function buildPodium() {
+  const xs = shuffle([...ROW.xs]);
+  const blocks = [1, 2, 3].map(rank => {
+    const b = el('div', 'block');
+    b.textContent = rank;
+    Object.assign(b.style, { left: PODIUM[rank].x + '%', height: PODIUM[rank].h + 'vh' });
+    return b;
+  });
+  const cardEls = winners.map((id, i) => {
+    const c = el('div', 'card open');
+    c.innerHTML = '<div class="title"></div><div class="lift"><div class="flip">' +
+      '<div class="face front"><img alt=""></div><div class="face back"><img src="card_back.png" alt=""></div>' +
+      '</div><span class="badge"></span></div>';
+    setFace(c, i + 1);
+    c.dataset.x = xs[i];
+    place(c, xs[i], ROW.y);
+    return c;
+  });
+  $('#podium').replaceChildren(...blocks, el('div', 'dim'), ...cardEls);
+  return cardEls;
+}
+
+// Top 3 decided: grid cross-fades into the podium, then flip face-down, shuffle and deal.
+// fromSlots = the 3 winners' grid slots in winners order (empty for Preview Winner).
+async function enterFinal(fromSlots = []) {
+  bgm.pause();
+  play(sfxTop3);
+  play(bgmWin);
+  const btn = $('#revealBtn');
+  btn.disabled = true;
+  btn.textContent = 'REVEAL';
+  revealStep = 0;
+  const top3Done = Promise.race([ // SFXWinner finished, or a fallback if it is missing/blocked
+    new Promise(r => sfxTop3.addEventListener('ended', r, { once: true })),
+    sleep(((sfxTop3.duration || 4) + 0.3) * 1000),
+  ]);
+
+  const from = fromSlots.map(s => s.querySelector('img').getBoundingClientRect());
+  fromSlots.forEach(s => s.style.visibility = 'hidden');
+  const cardEls = buildPodium();
+  $('#setup').hidden = true;
+  $('#topbar').hidden = false;
+  $('#final').hidden = false;
+  const game = $('#game');
+  await Promise.all([
+    game.hidden ? null : game.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 700, fill: 'forwards' }).finished,
+    ...[...document.querySelectorAll('.block')].map((b, i) => b.animate(
+      [{ transform: 'translate(-50%,110%)' }, { transform: 'translate(-50%,0)' }],
+      { duration: 700, delay: 350 + i * 120, easing: 'cubic-bezier(.2,.9,.3,1.15)', fill: 'backwards' }).finished),
+    ...cardEls.map((c, i) => { // fly from the grid poster, or pop in when there is no grid
+      const a = from[i], b = c.getBoundingClientRect();
+      const start = a ? `translate(${a.left - b.left}px,${a.top - b.top}px) scale(${a.width / b.width},${a.height / b.height})` : 'translateY(10vh) scale(.6)';
+      return c.animate([{ transform: start, transformOrigin: '0 0', opacity: a ? 1 : 0 }, { transform: 'none', transformOrigin: '0 0', opacity: 1 }],
+        { duration: 1100, delay: i * 90, easing: 'cubic-bezier(.6,0,.2,1)', fill: 'backwards' }).finished;
+    }),
+  ]);
+  show('#final');
+  game.getAnimations().forEach(a => a.cancel());
+
+  await top3Done;
+  await shuffleAndDeal(cardEls);
+  btn.disabled = false;
+}
+
+async function shuffleAndDeal(cardEls) {
+  for (const c of cardEls) { c.classList.replace('open', 'down'); await sleep(150); }
+  await sleep(750);
+
+  // fast swaps, speeding up from 320 to 120 ms; one card arcs over, the other under
+  for (let k = 0; k < SHUFFLE_SWAPS; k++) {
+    const ms = 320 - 200 * k / (SHUFFLE_SWAPS - 1), [a, b] = shuffle([...cardEls]);
+    [a.dataset.x, b.dataset.x] = [b.dataset.x, a.dataset.x];
+    a.style.zIndex = 4;
+    b.style.zIndex = '';
+    await Promise.all([
+      move(a, +a.dataset.x, ROW.y, ms, { arc: -70, tilt: -10 }),
+      move(b, +b.dataset.x, ROW.y, ms, { arc: 70, tilt: 10 }),
+    ]);
+  }
+  // gather into one stack, then spread out again
+  await Promise.all(cardEls.map((c, i) => (c.style.zIndex = i + 3, move(c, 50, ROW.y - i, 260))));
+  await sleep(150);
+  const xs = shuffle([...ROW.xs]);
+  await Promise.all(cardEls.map((c, i) => (c.dataset.x = xs[i], move(c, xs[i], ROW.y, 280, { easing: 'cubic-bezier(.2,.9,.3,1.2)' }))));
+  cardEls.forEach(c => c.style.zIndex = '');
+  await sleep(200);
+
+  // deal: whichever card lands on block r shows Juara r (faces swap while face-down, so it is invisible)
+  const ranks = shuffle([1, 2, 3]);
+  cardEls.forEach((c, i) => setFace(c, ranks[i]));
+  await Promise.all(cardEls.map(async (c, i) => {
+    await sleep(i * 200);
+    const s = seat(ranks[i]);
+    return move(c, s.x, s.y, 700, { arc: -90, tilt: (i - 1) * 8, easing: 'cubic-bezier(.3,1.25,.5,1)' });
+  }));
+}
+
+// ---------- reveal ----------
+const flash = () => $('#flash').animate([{ opacity: 0 }, { opacity: .85, offset: .15 }, { opacity: 0 }], { duration: 450, easing: 'ease-out' });
+
+// Build-up: card lifts, grows, glows and shakes harder and faster (keyframes bunch up towards the end).
+function hypeFrames(ms, big) {
+  const n = Math.max(16, Math.min(70, Math.round(ms / 90))), amp = big ? 7 : 5, f = [];
+  for (let i = 0; i <= n; i++) {
+    const t = Math.sqrt(i / n), rise = Math.min(1, t * 3), side = i % 2 ? 1 : -1;
+    f.push({
+      offset: t,
+      transform: `translateY(${-4 * rise}vh) scale(${1 + .12 * rise}) rotate(${side * amp * t * t}deg)`,
+      boxShadow: `0 0 ${2 + 6 * t}vh ${t}vh rgba(255,204,51,${.25 + .6 * t})`,
+    });
+  }
+  f[n].transform = 'translateY(-4vh) scale(1.12)'; // end at rest so the pop starts smoothly
+  return f;
+}
+
+async function hypeAndFlip(cardEls, ms, big) {
+  const podium = $('#podium'), dim = podium.querySelector('.dim'), rects = cardEls.map(c => c.getBoundingClientRect());
+  dim.style.background = rects.map(r => beam(r, '40')).join(',') + ',#000000b8';
+  dim.style.backgroundSize = rects.map(r => `100% ${r.bottom}px`).join(',');
+  dim.style.backgroundRepeat = 'no-repeat'; // beams stop at their card
+  dim.classList.add('on');
+  cardEls.forEach(c => c.classList.add('hot'));
+  const rays = cardEls.map(c => {
+    const r = el('div', 'rays hot'), s = seat(+c.dataset.rank);
+    Object.assign(r.style, { left: s.x + '%', top: s.y + CARD_H / 2 + 'vh' });
+    podium.append(r);
+    r.animate([{ opacity: 0, transform: 'translate(-50%,-50%) rotate(0) scale(.5)' },
+               { opacity: 1, transform: `translate(-50%,-50%) rotate(${big ? 900 : 540}deg) scale(1)` }],
+      { duration: ms, easing: 'ease-in', fill: 'forwards' });
+    return r;
+  });
+  cardEls.forEach(c => c.querySelector('.lift').animate(hypeFrames(ms, big), { duration: ms, fill: 'forwards' }));
+  await sleep(ms); // wall clock, not animation.finished: a stalled frame must not push the flip off the sound
+
+  // climax: flash, flip open with a pop, confetti
+  flash();
+  const pops = cardEls.map(c => {
+    const lift = c.querySelector('.lift');
+    lift.getAnimations().forEach(a => a.cancel());
+    c.classList.replace('down', 'open');
+    c.classList.add('revealed');
+    return lift.animate([{ transform: 'translateY(-4vh) scale(1.12)' }, { transform: 'translateY(-6vh) scale(1.3)', offset: .35 }, { transform: 'none' }],
+      { duration: 750, easing: 'cubic-bezier(.3,1.4,.5,1)' }).finished;
+  });
+  rects.forEach(r => confetti(r.left + r.width / 2, r.top + r.height / 2, big ? 160 : 90));
+  if (big) confetti(0, 0, 220, { rain: true });
+  await Promise.all(pops);
+
+  dim.classList.remove('on');
+  cardEls.forEach(c => c.classList.remove('hot'));
+  rays.forEach((r, i) => {
+    r.getAnimations().forEach(a => a.cancel());
+    if (cardEls[i].dataset.rank === '1') return r.classList.replace('hot', 'champ'); // champion keeps slow rays
+    r.classList.remove('hot');
+    r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 800 }).finished.then(() => r.remove());
+  });
+}
+
+// Gold/white confetti on one full-screen canvas: bursts from (x, y), or { rain: true } from the top.
+const confetti = (() => {
+  const cv = $('#confetti'), ctx = cv.getContext('2d'), parts = [];
+  const COLORS = ['#ffcc33', '#ffd75e', '#fff4c2', '#ffffff', '#c8901a'];
+  let running = false;
+  function frame() {
+    if (cv.width !== innerWidth || cv.height !== innerHeight) { cv.width = innerWidth; cv.height = innerHeight; }
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (const p of parts) {
+      p.vy += .25; p.vx *= .985; p.vy *= .985; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life--;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = Math.min(1, p.life / 40);
+      ctx.fillStyle = p.c;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.rot * 2))); // flutter
+      ctx.restore();
+    }
+    for (let i = parts.length; i--;) if (parts[i].life <= 0 || parts[i].y > cv.height + 40) parts.splice(i, 1);
+    if (parts.length) requestAnimationFrame(frame);
+    else { running = false; ctx.clearRect(0, 0, cv.width, cv.height); }
+  }
+  return (x, y, n, { rain = false } = {}) => {
+    for (let i = 0; i < n; i++) {
+      const a = rain ? Math.PI / 2 : -Math.PI / 2 + (Math.random() - .5) * Math.PI * 1.2, s = rain ? 2 + Math.random() * 3 : 9 + Math.random() * 11;
+      parts.push({
+        x: rain ? Math.random() * innerWidth : x, y: rain ? -20 - Math.random() * innerHeight * .6 : y,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s, rot: Math.random() * 6, vr: (Math.random() - .5) * .3,
+        w: 6 + Math.random() * 8, h: 10 + Math.random() * 10, c: COLORS[i % COLORS.length], life: rain ? 320 : 170 + Math.random() * 80,
+      });
+    }
+    if (!running) { running = true; requestAnimationFrame(frame); }
+  };
+})();
 
 // Click 1: juara 3. Click 2: juara 2 & 1 together. Click 3: "Main Lagi".
 $('#revealBtn').onclick = async () => {
@@ -365,13 +586,7 @@ $('#revealBtn').onclick = async () => {
   const { ranks, sound, delay } = REVEAL_STEPS[revealStep++];
   btn.disabled = true;
   play(sound);
-  await sleep(delay);
-  for (const rank of ranks) {
-    const f = $(`.fin[data-rank="${rank}"]`), p = PODIUM[rank];
-    // sit on the block whatever the height (titles may wrap onto several lines)
-    Object.assign(f.style, { left: p.x + '%', top: innerHeight * (100 - p.h) / 100 - f.offsetHeight + 'px' });
-    f.classList.add('revealed');
-  }
+  await hypeAndFlip(ranks.map(r => $(`.card[data-rank="${r}"]`)), Math.max(delay, MIN_HYPE), ranks.includes(1));
   btn.disabled = false;
   if (revealStep === REVEAL_STEPS.length) btn.textContent = 'Main Lagi';
 };
