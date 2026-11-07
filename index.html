@@ -36,7 +36,7 @@
   .logos{display:flex;align-items:center;gap:1.5vw;height:7vh}
   .logos img{height:100%;width:auto}
   .award{text-align:center;font-size:8vh;line-height:1.1;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);text-shadow:0 4px 24px #000a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #playBtn{position:fixed;top:2.5vh;right:3vw;z-index:3;font-size:20px}
+  #playBtn,#nextBtn{position:fixed;top:2.5vh;right:3vw;z-index:3;font-size:20px}
 
   /* grid: 2 rows (n/2 columns), centred; slot size set in layoutGrid() */
   #game{height:100%;padding:20vh 4vw 3vh}
@@ -140,6 +140,7 @@
 
 <section id="game" hidden>
   <button id="playBtn" type="button">PLAY</button>
+  <button id="nextBtn" type="button" hidden>NEXT</button>
   <div id="grid"></div>
 </section>
 
@@ -322,6 +323,13 @@ function pickTarget(alive, missed, round) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+function waitForNext() {
+  const btn = $('#nextBtn');
+  btn.hidden = false;
+  btn.focus();
+  return new Promise(r => { btn.onclick = () => { btn.hidden = true; r(); }; });
+}
+
 $('#playBtn').onclick = async () => {
   $('#playBtn').hidden = true;
   const missed = new Set();
@@ -331,7 +339,10 @@ $('#playBtn').onclick = async () => {
     const miss = isWinner(target) || !missed.has(target);
     missed.add(target);
     await grabRound(target.slot, miss);
-    if (!miss) alive = alive.filter(c => c !== target);
+    if (!miss) {
+      alive = alive.filter(c => c !== target);
+      await waitForNext(); // every elimination pauses the show until the host presses NEXT
+    }
   }
   console.assert(alive.length === 3 && alive.every(isWinner) && cards.every(c => missed.has(c)),
     'finalists must be the chosen winners and every nominee must have missed once', alive);
