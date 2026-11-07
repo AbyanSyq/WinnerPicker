@@ -26,6 +26,7 @@
   #list button{background:none;color:var(--muted);padding:4px 8px}
   .ranks{display:flex;gap:16px;flex-wrap:wrap}
   .ranks label,.field{display:flex;flex-direction:column;gap:4px;font-weight:700}
+  .rankcol{display:flex;flex-direction:column;gap:8px}
   .field{max-width:480px}
   #error{color:var(--miss);min-height:1.4em;font-weight:700}
   button.ghost{background:none;color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent)}
@@ -68,7 +69,11 @@
   /* podium (fixed overlay so it can cross-fade over the grid) */
   #final{position:fixed;inset:0}
   #podium{position:absolute;inset:0}
-  .block{position:absolute;bottom:0;z-index:2;width:22vh;transform:translateX(-50%);display:flex;justify-content:center;padding-top:1vh;border-radius:8px 8px 0 0;background:linear-gradient(#ffd75e,#c8901a);color:#5a3a00;font-size:6vh;font-weight:900;line-height:1}
+  .block{position:absolute;bottom:0;z-index:2;width:22vh;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;padding:1vh 0 2.5vh;border-radius:8px 8px 0 0;background:linear-gradient(#ffd75e,#c8901a);color:#5a3a00;font-size:6vh;font-weight:900;line-height:1}
+  .block .prize{margin-top:auto;font-size:2.8vh;letter-spacing:.02em;white-space:nowrap;color:#3d2700;transition:opacity .4s .15s,transform .5s .15s cubic-bezier(.3,1.6,.5,1)}
+  .block.prize-hidden .prize{opacity:0;transform:scale(.4)} /* pops in when its card is revealed */
+  .check{display:flex;align-items:center;gap:8px;font-weight:700;cursor:pointer}
+  .check input{width:18px;height:18px;accent-color:var(--accent)}
 
   /* cards: .card moves, .lift hypes, .flip turns (0 = poster, 180deg = card_back) */
   :root{--card-h:27vh} /* keep in sync with CARD_H */
@@ -125,10 +130,11 @@
   <ul id="list"></ul>
   <h2>Juara</h2>
   <div class="ranks">
-    <label>Juara 1<select class="rank"></select></label>
-    <label>Juara 2<select class="rank"></select></label>
-    <label>Juara 3<select class="rank"></select></label>
+    <div class="rankcol"><label>Juara 1<select class="rank"></select></label><label>Hadiah Juara 1 (Rp)<input class="prize" type="number" min="0" step="1000" value="450000"></label></div>
+    <div class="rankcol"><label>Juara 2<select class="rank"></select></label><label>Hadiah Juara 2 (Rp)<input class="prize" type="number" min="0" step="1000" value="300000"></label></div>
+    <div class="rankcol"><label>Juara 3<select class="rank"></select></label><label>Hadiah Juara 3 (Rp)<input class="prize" type="number" min="0" step="1000" value="200000"></label></div>
   </div>
+  <label class="check"><input id="prizeWithReveal" type="checkbox" checked> Nominal hadiah baru muncul saat kartu juara di-reveal</label>
   <p id="error" role="alert"></p>
   <div><button id="startBtn" type="button">Mulai</button> <button id="previewBtn" type="button" class="ghost">Preview Winner</button></div>
 </section>
@@ -226,6 +232,9 @@ const show = id => { ['#setup', '#game', '#final'].forEach(s => $(s).hidden = s 
 
 let noms = [];     // {id, title, src}
 let winners = [];  // [id juara 1, id juara 2, id juara 3]
+let prizes = [];   // [rupiah juara 1, 2, 3] or null
+let prizeWithReveal = true; // true: a block's prize pops in with its card; false: prizes show from the start
+const rupiah = v => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(v);
 let nextId = 1;
 let cards = [];    // {nom, slot}
 let revealStep = 0; // index into REVEAL_STEPS
@@ -267,12 +276,16 @@ function renderSelects() {
 // Validates the setup form and stores winners + award title; false (with an inline error) if invalid.
 function readSetup() {
   const ids = [...document.querySelectorAll('.rank')].map(s => Number(s.value));
+  const prizeVals = [...document.querySelectorAll('input.prize')].map(i => i.value === '' ? null : Number(i.value)); // empty = no prize shown
   const err = noms.length < 4 ? 'Minimal 4 nominasi.'
     : ids.some(id => !id) ? 'Pilih Juara 1, 2, dan 3.'
-    : new Set(ids).size < 3 ? 'Juara 1, 2, dan 3 harus berbeda.' : '';
+    : new Set(ids).size < 3 ? 'Juara 1, 2, dan 3 harus berbeda.'
+    : prizeVals.some(v => v !== null && !(v >= 0)) ? 'Hadiah harus angka 0 atau lebih.' : '';
   $('#error').textContent = err;
   if (err) return false;
   winners = ids;
+  prizes = prizeVals;
+  prizeWithReveal = $('#prizeWithReveal').checked;
   $('#awardTitle').textContent = $('#award').value.trim() || 'Winner Picker';
   return true;
 }
@@ -441,7 +454,11 @@ function buildPodium() {
   const xs = shuffle([...ROW.xs]);
   const blocks = [1, 2, 3].map(rank => {
     const b = el('div', 'block');
-    b.textContent = rank;
+    b.innerHTML = '<span></span><span class="prize"></span>';
+    b.firstChild.textContent = rank;
+    b.lastChild.textContent = prizes[rank - 1] == null ? '' : rupiah(prizes[rank - 1]);
+    b.dataset.rank = rank;
+    b.classList.toggle('prize-hidden', prizeWithReveal);
     Object.assign(b.style, { left: PODIUM[rank].x + '%', height: PODIUM[rank].h + 'vh' });
     return b;
   });
@@ -582,6 +599,7 @@ async function hypeAndFlip(cardEls, ms, big) {
     lift.getAnimations().forEach(a => a.cancel());
     c.classList.replace('down', 'open');
     c.classList.add('revealed');
+    $(`.block[data-rank="${c.dataset.rank}"]`).classList.remove('prize-hidden'); // prize shows with its winner
     return lift.animate([{ transform: 'translateY(-4vh) scale(1.12)' }, { transform: 'translateY(-6vh) scale(1.3)', offset: .35 }, { transform: 'none' }],
       { duration: 750, easing: 'cubic-bezier(.3,1.4,.5,1)' }).finished;
   });
