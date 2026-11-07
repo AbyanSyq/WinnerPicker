@@ -28,6 +28,7 @@
   .ranks label,.field{display:flex;flex-direction:column;gap:4px;font-weight:700}
   .field{max-width:480px}
   #error{color:var(--miss);min-height:1.4em;font-weight:700}
+  button.ghost{background:none;color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent)}
 
   /* grid */
   /* shared header: logos top-left, big award title centred below */
@@ -67,13 +68,20 @@
   /* podium */
   #final{height:100%;position:relative}
   .block{position:absolute;bottom:0;width:22vh;transform:translateX(-50%);display:flex;justify-content:center;padding-top:1vh;border-radius:8px 8px 0 0;background:linear-gradient(#ffd75e,#c8901a);color:#5a3a00;font-size:6vh;font-weight:900;line-height:1}
-  .fin{position:absolute;width:16vh;height:28vh;transform:translateX(-50%);display:flex;flex-direction:column;transition:left .9s ease-in-out,top .9s ease-in-out}
+  .fin{position:absolute;width:16vh;transform:translateX(-50%);display:flex;flex-direction:column;transition:left .9s ease-in-out,top .9s ease-in-out}
   .fin img{height:24vh;width:100%;object-fit:cover;border-radius:10px;box-shadow:0 8px 24px #000a;transition:box-shadow .6s}
-  .fin .title{height:4vh;font-size:2vh;font-weight:700;text-align:center;padding-top:.6vh;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fin .title{font-size:2vh;line-height:1.25;font-weight:700;text-align:center;padding:.6vh 0 .4vh;overflow-wrap:anywhere}
   .fin .badge{position:absolute;top:-2vh;right:-2vh;width:6vh;height:6vh;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#1a1400;font-size:2.6vh;font-weight:900;box-shadow:0 4px 12px #000a;transform:scale(0);transition:transform .4s .8s cubic-bezier(.3,1.6,.5,1)}
   .fin.revealed .badge{transform:scale(1)}
   .fin.revealed[data-rank="1"] img{box-shadow:0 0 48px 10px var(--accent)}
   #revealBtn{position:absolute;right:24px;bottom:24px;font-size:20px;z-index:2}
+  #revealBtn:disabled{opacity:.5;cursor:default}
+
+  /* volume sliders, bottom-left */
+  #mixer{position:fixed;left:16px;bottom:16px;z-index:11;display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:var(--muted);opacity:.4;transition:opacity .2s}
+  #mixer:hover,#mixer:focus-within{opacity:1}
+  #mixer label{display:flex;align-items:center;gap:8px}
+  #mixer input{width:110px;padding:0;border:0;background:none;accent-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -92,7 +100,7 @@
     <label>Juara 3<select class="rank"></select></label>
   </div>
   <p id="error" role="alert"></p>
-  <div><button id="startBtn" type="button">Mulai</button></div>
+  <div><button id="startBtn" type="button">Mulai</button> <button id="previewBtn" type="button" class="ghost">Preview Winner</button></div>
 </section>
 
 <header id="topbar" hidden>
@@ -110,6 +118,11 @@
   <button id="revealBtn" type="button">REVEAL</button>
 </section>
 
+<div id="mixer">
+  <label>SFX <input id="sfxVol" type="range" min="0" max="1" step="0.05" value="1"></label>
+  <label>BGM <input id="bgmVol" type="range" min="0" max="1" step="0.05" value="0.35"></label>
+</div>
+
 <div id="spot"></div>
 <div id="bungee" hidden><div id="rope"></div><img id="gif" alt=""></div>
 
@@ -121,12 +134,23 @@ const ROPE = { x: 0.5, w: 4 / 360 };                 // rope centre + thickness 
 const GIF_RATIO = 362 / 360, GIF_SCALE = 1.4;        // GIF width = 1.4x poster width
 const FORCED_MISSES = 2, PAUSE = 700;
 const PODIUM = { 1: { x: 50, h: 20 }, 2: { x: 30, h: 13 }, 3: { x: 70, h: 8 } }; // x in %, h in vh
-const FIN_H = 28; // .fin height in vh
-const BGM_VOLUME = 0.35;
+// ms between the reveal sound and the podium animation
+const REVEAL_DELAY_3RD = 0;   // juara 3
+const REVEAL_DELAY_CHAMP = 6000; // juara 1 & 2
 
-const sfx = new Audio('sfx.mp3');
-const bgm = Object.assign(new Audio('BGM.mp3'), { loop: true, volume: BGM_VOLUME });
-const play = a => a.play().catch(() => {}); // a blocked/missing sound must never stop the show
+const sfx = new Audio('sfx.mp3');                    // each grab0
+const sfxTop3 = new Audio('SFXWinner.mp3');          // top 3 decided
+const sfx3rd = new Audio('SFX_3rdWinner.MP3');       // reveal juara 3
+const sfxChamp = new Audio('SFX_champion.mp3');      // reveal juara 1 & 2
+const bgm = Object.assign(new Audio('BGM.mp3'), { loop: true });
+const bgmWin = Object.assign(new Audio('BGM_Winner.mp3'), { loop: true }); // placeholder: drop BGM_Winner.mp3 into this folder
+const SFX = [sfx, sfxTop3, sfx3rd, sfxChamp], BGMS = [bgm, bgmWin];
+const play = a => { a.currentTime = 0; return a.play().catch(() => {}); }; // a blocked/missing sound must never stop the show
+const setVol = (list, v) => list.forEach(a => a.volume = v);
+document.getElementById('sfxVol').oninput = e => setVol(SFX, +e.target.value);
+document.getElementById('bgmVol').oninput = e => setVol(BGMS, +e.target.value);
+setVol(SFX, +document.getElementById('sfxVol').value);
+setVol(BGMS, +document.getElementById('bgmVol').value);
 
 const $ = s => document.querySelector(s);
 const el = (tag, cls) => Object.assign(document.createElement(tag), { className: cls });
@@ -138,7 +162,11 @@ let noms = [];     // {id, title, src}
 let winners = [];  // [id juara 1, id juara 2, id juara 3]
 let nextId = 1;
 let cards = [];    // {nom, slot}
-let revealStep = 0;
+let revealStep = 0; // index into REVEAL_STEPS
+const REVEAL_STEPS = [
+  { ranks: [3], sound: sfx3rd, delay: REVEAL_DELAY_3RD },
+  { ranks: [2, 1], sound: sfxChamp, delay: REVEAL_DELAY_CHAMP },
+];
 
 // ---------- setup ----------
 $('#files').onchange = e => {
@@ -170,20 +198,27 @@ function renderSelects() {
   });
 }
 
-$('#startBtn').onclick = () => {
+// Validates the setup form and stores winners + award title; false (with an inline error) if invalid.
+function readSetup() {
   const ids = [...document.querySelectorAll('.rank')].map(s => Number(s.value));
   const err = noms.length < 4 ? 'Minimal 4 nominasi.'
     : ids.some(id => !id) ? 'Pilih Juara 1, 2, dan 3.'
     : new Set(ids).size < 3 ? 'Juara 1, 2, dan 3 harus berbeda.' : '';
   $('#error').textContent = err;
-  if (err) return;
+  if (err) return false;
   winners = ids;
-  const award = $('#award').value.trim() || 'Winner Picker';
-  $('#awardTitle').textContent = award;
-  bgm.currentTime = 0;
+  $('#awardTitle').textContent = $('#award').value.trim() || 'Winner Picker';
+  return true;
+}
+
+$('#startBtn').onclick = () => {
+  if (!readSetup()) return;
+  bgmWin.pause();
   play(bgm); // started from this click so browser autoplay rules allow it
   startGame();
 };
+
+$('#previewBtn').onclick = () => { if (readSetup()) enterFinal(); }; // skip the picker, straight to the podium
 
 // ---------- grid ----------
 function startGame() {
@@ -235,8 +270,15 @@ $('#playBtn').onclick = async () => {
   console.assert(alive.length === 3 && alive.every(isWinner) && cards.every(c => missed.has(c)),
     'finalists must be the chosen winners and every nominee must have missed once', alive);
   await sleep(800);
-  showFinal();
+  enterFinal();
 };
+
+function enterFinal() {
+  bgm.pause();
+  play(sfxTop3); // top 3 decided
+  play(bgmWin);
+  showFinal();
+}
 
 async function grabRound(slot, miss) {
   const r = slot.querySelector('img').getBoundingClientRect();
@@ -263,7 +305,6 @@ async function grabRound(slot, miss) {
   await new Promise(res => { gif.onload = gif.onerror = res; gif.src = GIF + '?' + Date.now(); }); // cache-bust restarts the GIF at frame 0
 
   const t0 = performance.now(), at = ms => sleep(t0 + ms - performance.now());
-  sfx.currentTime = 0;
   play(sfx); // SFX starts together with the GIF
   await at(T.ropeIn);
   rope.style.visibility = 'visible';
@@ -313,16 +354,26 @@ function showFinal() {
       return f;
     })
   );
-  revealStep = 3;
+  revealStep = 0;
   $('#revealBtn').textContent = 'REVEAL';
 }
 
-$('#revealBtn').onclick = () => {
-  if (!revealStep) { bgm.pause(); return show('#setup'); } // "Main Lagi"
-  const f = $(`.fin[data-rank="${revealStep}"]`), p = PODIUM[revealStep];
-  Object.assign(f.style, { left: p.x + '%', top: 100 - p.h - FIN_H + 'vh' });
-  f.classList.add('revealed');
-  if (!--revealStep) $('#revealBtn').textContent = 'Main Lagi';
+// Click 1: juara 3. Click 2: juara 2 & 1 together. Click 3: "Main Lagi".
+$('#revealBtn').onclick = async () => {
+  const btn = $('#revealBtn');
+  if (revealStep === REVEAL_STEPS.length) { [bgm, bgmWin].forEach(a => a.pause()); return show('#setup'); }
+  const { ranks, sound, delay } = REVEAL_STEPS[revealStep++];
+  btn.disabled = true;
+  play(sound);
+  await sleep(delay);
+  for (const rank of ranks) {
+    const f = $(`.fin[data-rank="${rank}"]`), p = PODIUM[rank];
+    // sit on the block whatever the height (titles may wrap onto several lines)
+    Object.assign(f.style, { left: p.x + '%', top: innerHeight * (100 - p.h) / 100 - f.offsetHeight + 'px' });
+    f.classList.add('revealed');
+  }
+  btn.disabled = false;
+  if (revealStep === REVEAL_STEPS.length) btn.textContent = 'Main Lagi';
 };
 
 renderSetup();
