@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Winner Picker</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  [hidden]{display:none!important}
+  :root{--bg:#14121f;--panel:#1f1c30;--line:#3a3558;--fg:#f4f1ff;--muted:#a49fc0;--accent:#ffcc33;--miss:#ff4d6d}
+  html,body{height:100%}
+  body{background:#000 url('Background.png') center/cover no-repeat;color:var(--fg);font:16px/1.4 system-ui,sans-serif;overflow:hidden}
+  button,.btn{font:inherit;font-weight:800;cursor:pointer;border:0;border-radius:10px;padding:.6em 1.4em;background:var(--accent);color:#1a1400;display:inline-block}
+  :focus-visible,.btn:focus-within{outline:3px solid #fff;outline-offset:2px}
+  input,select{background:#0e0c18;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+  .sr{position:absolute;width:1px;height:1px;opacity:0}
+
+  /* setup */
+  #setup{height:100%;overflow:auto;padding:24px;max-width:1100px;margin:auto;display:flex;flex-direction:column;gap:16px}
+  #setup h2{font-size:18px}
+  .muted{color:var(--muted);font-size:14px}
+  #list{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
+  #list li{display:flex;gap:8px;align-items:center;background:var(--panel);padding:6px;border-radius:8px}
+  #list img{width:40px;height:60px;object-fit:cover;border-radius:4px}
+  #list input{flex:1;min-width:0}
+  #list button{background:none;color:var(--muted);padding:4px 8px}
+  .ranks{display:flex;gap:16px;flex-wrap:wrap}
+  .ranks label,.field{display:flex;flex-direction:column;gap:4px;font-weight:700}
+  .field{max-width:480px}
+  #error{color:var(--miss);min-height:1.4em;font-weight:700}
+
+  /* grid */
+  /* shared header: logos top-left, big award title centred below */
+  #topbar{position:fixed;top:0;left:0;right:0;padding:2vh 3vw 0;z-index:3;pointer-events:none}
+  .logos{display:flex;align-items:center;gap:1.5vw;height:7vh}
+  .logos img{height:100%;width:auto}
+  .award{text-align:center;font-size:8vh;line-height:1.1;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);text-shadow:0 4px 24px #000a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #playBtn{position:fixed;top:2.5vh;right:3vw;z-index:3;font-size:20px}
+
+  /* grid: 2 rows (n/2 columns), centred; slot size set in layoutGrid() */
+  #game{height:100%;padding:20vh 4vw 3vh}
+  #grid{height:100%;display:flex;flex-wrap:wrap;justify-content:center;align-content:center;gap:var(--gap)}
+  .slot{position:relative;width:var(--w);height:var(--h);border-radius:10px}
+  .poster{height:100%;display:flex;flex-direction:column;background:var(--panel);border-radius:10px;overflow:hidden;box-shadow:0 4px 12px #0006}
+  .poster img{flex:1;min-height:0;width:100%;object-fit:cover}
+  .poster span{padding:4px 6px;font-size:13px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .slot.lifting,.slot.picked{z-index:5}
+  .poster{transition:box-shadow .4s}
+  .slot.picked .poster{box-shadow:0 0 0 3px #fff9,0 0 48px 12px #ffe9a8aa}
+  /* spotlight: darkens the stage, light pool + beam on the picked poster */
+  #spot{position:fixed;inset:0;z-index:4;pointer-events:none;opacity:0;transition:opacity .4s}
+  #spot.on{opacity:1}
+  .slot.gone{border:2px dashed var(--line)}
+  .slot.gone .poster{visibility:hidden}
+  .miss{position:absolute;left:50%;top:50%;z-index:20;pointer-events:none;font-size:clamp(28px,4vw,64px);font-weight:900;color:#fff;background:var(--miss);padding:.05em .4em;border-radius:12px;box-shadow:0 6px 0 #a3002a;animation:pop 1.3s ease-out forwards}
+  @keyframes pop{
+    0%{transform:translate(-50%,-50%) rotate(-8deg) scale(0)}
+    15%{transform:translate(-50%,-50%) rotate(-8deg) scale(1.25)}
+    25%,70%{transform:translate(-50%,-50%) rotate(-8deg) scale(1);opacity:1}
+    100%{transform:translate(-50%,-110%) rotate(-8deg) scale(1);opacity:0}}
+
+  /* bungee overlay: screen top -> bottom of the GIF */
+  #bungee{position:fixed;top:0;z-index:10;pointer-events:none}
+  #rope{position:absolute;top:0;transform:translateX(-50%);background:linear-gradient(90deg,#5a4505,#6f4c24 30%,#1a3002 55%,#627d35)}
+  #gif{position:absolute;left:0}
+
+  /* podium */
+  #final{height:100%;position:relative}
+  .block{position:absolute;bottom:0;width:22vh;transform:translateX(-50%);display:flex;justify-content:center;padding-top:1vh;border-radius:8px 8px 0 0;background:linear-gradient(#ffd75e,#c8901a);color:#5a3a00;font-size:6vh;font-weight:900;line-height:1}
+  .fin{position:absolute;width:16vh;height:28vh;transform:translateX(-50%);display:flex;flex-direction:column;transition:left .9s ease-in-out,top .9s ease-in-out}
+  .fin img{height:24vh;width:100%;object-fit:cover;border-radius:10px;box-shadow:0 8px 24px #000a;transition:box-shadow .6s}
+  .fin .title{height:4vh;font-size:2vh;font-weight:700;text-align:center;padding-top:.6vh;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fin .badge{position:absolute;top:-2vh;right:-2vh;width:6vh;height:6vh;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#1a1400;font-size:2.6vh;font-weight:900;box-shadow:0 4px 12px #000a;transform:scale(0);transition:transform .4s .8s cubic-bezier(.3,1.6,.5,1)}
+  .fin.revealed .badge{transform:scale(1)}
+  .fin.revealed[data-rank="1"] img{box-shadow:0 0 48px 10px var(--accent)}
+  #revealBtn{position:absolute;right:24px;bottom:24px;font-size:20px;z-index:2}
+</style>
+</head>
+<body>
+
+<section id="setup">
+  <h1>Winner Picker — Setup</h1>
+  <p class="muted">Layar ini khusus operator. Nama file poster otomatis jadi judul (bisa diedit).</p>
+  <label class="field">Judul Penghargaan<input id="award" placeholder="mis. Game of the Year 2026"></label>
+  <div><label class="btn">+ Tambah Poster<input id="files" class="sr" type="file" multiple accept="image/*"></label></div>
+  <h2>Nominasi (<span id="count">0</span>)</h2>
+  <ul id="list"></ul>
+  <h2>Juara</h2>
+  <div class="ranks">
+    <label>Juara 1<select class="rank"></select></label>
+    <label>Juara 2<select class="rank"></select></label>
+    <label>Juara 3<select class="rank"></select></label>
+  </div>
+  <p id="error" role="alert"></p>
+  <div><button id="startBtn" type="button">Mulai</button></div>
+</section>
+
+<header id="topbar" hidden>
+  <div class="logos"><img src="Logo_1.png" alt="Raion Community"></div>
+  <h1 id="awardTitle" class="award"></h1>
+</header>
+
+<section id="game" hidden>
+  <button id="playBtn" type="button">PLAY</button>
+  <div id="grid"></div>
+</section>
+
+<section id="final" hidden>
+  <div id="podium"></div>
+  <button id="revealBtn" type="button">REVEAL</button>
+</section>
+
+<div id="spot"></div>
+<div id="bungee" hidden><div id="rope"></div><img id="gif" alt=""></div>
+
+<script>
+const GIF = 'BungeeAnim.gif';
+const T = { ropeIn: 2970, grab: 5870, gone: 6140 };   // measured from BungeeAnim.gif (215 frames, 7170 ms)
+const TARGET = { x: 0.494, y: 0.757 };               // target-marker centre inside the GIF frame
+const ROPE = { x: 0.5, w: 4 / 360 };                 // rope centre + thickness inside the GIF frame
+const GIF_RATIO = 362 / 360, GIF_SCALE = 1.4;        // GIF width = 1.4x poster width
+const FORCED_MISSES = 2, PAUSE = 700;
+const PODIUM = { 1: { x: 50, h: 20 }, 2: { x: 30, h: 13 }, 3: { x: 70, h: 8 } }; // x in %, h in vh
+const FIN_H = 28; // .fin height in vh
+const BGM_VOLUME = 0.35;
+
+const sfx = new Audio('sfx.mp3');
+const bgm = Object.assign(new Audio('BGM.mp3'), { loop: true, volume: BGM_VOLUME });
+const play = a => a.play().catch(() => {}); // a blocked/missing sound must never stop the show
+
+const $ = s => document.querySelector(s);
+const el = (tag, cls) => Object.assign(document.createElement(tag), { className: cls });
+const sleep = ms => new Promise(r => setTimeout(r, Math.max(0, ms)));
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const show = id => { ['#setup', '#game', '#final'].forEach(s => $(s).hidden = s !== id); $('#topbar').hidden = id === '#setup'; };
+
+let noms = [];     // {id, title, src}
+let winners = [];  // [id juara 1, id juara 2, id juara 3]
+let nextId = 1;
+let cards = [];    // {nom, slot}
+let revealStep = 0;
+
+// ---------- setup ----------
+$('#files').onchange = e => {
+  for (const f of e.target.files) noms.push({ id: nextId++, title: f.name.replace(/\.[^.]+$/, ''), src: URL.createObjectURL(f) });
+  e.target.value = '';
+  renderSetup();
+};
+
+function renderSetup() {
+  $('#count').textContent = noms.length;
+  $('#list').replaceChildren(...noms.map(n => {
+    const li = document.createElement('li');
+    li.innerHTML = '<img alt=""><input aria-label="Judul"><button type="button" aria-label="Hapus">✕</button>';
+    li.querySelector('img').src = n.src;
+    const inp = li.querySelector('input');
+    inp.value = n.title;
+    inp.oninput = () => { n.title = inp.value; renderSelects(); };
+    li.querySelector('button').onclick = () => { URL.revokeObjectURL(n.src); noms = noms.filter(x => x !== n); renderSetup(); };
+    return li;
+  }));
+  renderSelects();
+}
+
+function renderSelects() {
+  document.querySelectorAll('.rank').forEach(sel => {
+    const v = sel.value;
+    sel.replaceChildren(new Option('— pilih —', ''), ...noms.map(n => new Option(n.title || '(tanpa judul)', n.id)));
+    sel.value = noms.some(n => String(n.id) === v) ? v : '';
+  });
+}
+
+$('#startBtn').onclick = () => {
+  const ids = [...document.querySelectorAll('.rank')].map(s => Number(s.value));
+  const err = noms.length < 4 ? 'Minimal 4 nominasi.'
+    : ids.some(id => !id) ? 'Pilih Juara 1, 2, dan 3.'
+    : new Set(ids).size < 3 ? 'Juara 1, 2, dan 3 harus berbeda.' : '';
+  $('#error').textContent = err;
+  if (err) return;
+  winners = ids;
+  const award = $('#award').value.trim() || 'Winner Picker';
+  $('#awardTitle').textContent = award;
+  bgm.currentTime = 0;
+  play(bgm); // started from this click so browser autoplay rules allow it
+  startGame();
+};
+
+// ---------- grid ----------
+function startGame() {
+  show('#game');
+  cards = noms.map(nom => {
+    const slot = el('div', 'slot');
+    slot.innerHTML = '<div class="poster"><img alt=""><span></span></div>';
+    slot.querySelector('img').src = nom.src;
+    slot.querySelector('span').textContent = nom.title;
+    return { nom, slot };
+  });
+  $('#grid').replaceChildren(...cards.map(c => c.slot));
+  layoutGrid();
+  $('#playBtn').hidden = false;
+}
+
+// 2 rows of ceil(n/2) posters; biggest 2:3 poster size that fits both width and height.
+function layoutGrid() {
+  const g = $('#grid'), cols = Math.ceil(cards.length / 2), gap = innerHeight * 0.02, titleH = 26;
+  const w = Math.floor(Math.min((g.clientWidth - gap * (cols - 1)) / cols, ((g.clientHeight - gap) / 2 - titleH) / 1.5));
+  g.style.cssText = `--gap:${gap}px;--w:${w}px;--h:${w * 1.5 + titleH}px`;
+}
+addEventListener('resize', () => { if (!$('#game').hidden) layoutGrid(); });
+
+const isWinner = c => winners.includes(c.nom.id);
+
+// Not truly random: every nominee MISSES at least once (its first grab always misses),
+// only an already-missed loser can be taken, and the opening rounds only target unmissed posters.
+// The last elimination waits until every winner has missed, so the show ends the moment 3 remain.
+function pickTarget(alive, missed, round) {
+  const unmissed = alive.filter(c => !missed.has(c));
+  const lastTake = alive.length === 4 && unmissed.some(isWinner);
+  const useful = alive.filter(c => !missed.has(c) || (!isWinner(c) && !lastTake));
+  const pool = round < FORCED_MISSES && unmissed.length ? unmissed : useful;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+$('#playBtn').onclick = async () => {
+  $('#playBtn').hidden = true;
+  const missed = new Set();
+  let alive = [...cards];
+  for (let round = 0; alive.length > 3; round++) { // stop picking as soon as 3 remain
+    const target = pickTarget(alive, missed, round);
+    const miss = isWinner(target) || !missed.has(target);
+    missed.add(target);
+    await grabRound(target.slot, miss);
+    if (!miss) alive = alive.filter(c => c !== target);
+  }
+  console.assert(alive.length === 3 && alive.every(isWinner) && cards.every(c => missed.has(c)),
+    'finalists must be the chosen winners and every nominee must have missed once', alive);
+  await sleep(800);
+  showFinal();
+};
+
+async function grabRound(slot, miss) {
+  const r = slot.querySelector('img').getBoundingClientRect();
+  const w = r.width * GIF_SCALE, h = w * GIF_RATIO;
+  const top = r.top + r.height / 2 - TARGET.y * h;  // GIF top, in viewport px (may be negative)
+  const b = $('#bungee'), rope = $('#rope'), gif = $('#gif'), poster = slot.querySelector('.poster');
+
+  // Spotlight: beam from the screen top widening onto the poster + dark stage around a light pool.
+  const spot = $('#spot'), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const half = Math.atan2(r.width * 0.7, cy) * 180 / Math.PI;
+  spot.style.background =
+    `conic-gradient(from ${180 - half}deg at ${cx}px 0, #ffeeb426 0deg ${2 * half}deg, transparent 0),` +
+    `radial-gradient(ellipse ${r.width}px ${r.height * 0.8}px at ${cx}px ${cy}px, transparent 60%, #000000c0 100%)`;
+  spot.style.backgroundSize = `100% ${r.bottom}px, 100% 100%`; // beam stops at the poster
+  spot.style.backgroundRepeat = 'no-repeat';
+  spot.classList.add('on');
+  slot.classList.add('picked');
+
+  Object.assign(b.style, { left: r.left + r.width / 2 - TARGET.x * w + 'px', width: w + 'px', height: top + h + 'px', transition: 'none', transform: '' });
+  Object.assign(rope.style, { left: ROPE.x * w + 'px', width: Math.max(2, ROPE.w * w) + 'px', height: Math.max(0, top) + 'px', visibility: 'hidden' });
+  Object.assign(gif.style, { top: top + 'px', width: w + 'px', height: h + 'px' });
+  gif.removeAttribute('src');
+  b.hidden = false;
+  await new Promise(res => { gif.onload = gif.onerror = res; gif.src = GIF + '?' + Date.now(); }); // cache-bust restarts the GIF at frame 0
+
+  const t0 = performance.now(), at = ms => sleep(t0 + ms - performance.now());
+  sfx.currentTime = 0;
+  play(sfx); // SFX starts together with the GIF
+  await at(T.ropeIn);
+  rope.style.visibility = 'visible';
+  await at(T.grab);
+
+  // Lift the whole bungee (and the poster, if caught) off the top of the screen.
+  const liftMs = T.gone - T.grab, lift = r.bottom + 40, ease = `transform ${liftMs}ms ease-in`;
+  b.style.transition = ease;
+  b.style.transform = `translateY(${-lift}px)`;
+  if (miss) {
+    const m = el('div', 'miss');
+    m.textContent = 'MISS!';
+    m.onanimationend = () => m.remove();
+    slot.append(m);
+  } else {
+    slot.classList.add('lifting');
+    poster.style.transition = ease;
+    poster.style.transform = `translateY(${-(lift + h * 0.86)}px)`; // + the character's own rise inside the GIF
+  }
+  await at(T.gone);
+  b.hidden = true;
+  spot.classList.remove('on');
+  slot.classList.remove('picked');
+  if (!miss) slot.classList.replace('lifting', 'gone');
+  await sleep(PAUSE);
+}
+
+// ---------- podium ----------
+function showFinal() {
+  show('#final');
+  const xs = shuffle([30, 50, 70]); // finalists start in random order so position leaks nothing
+  $('#podium').replaceChildren(
+    ...[1, 2, 3].map(rank => {
+      const b = el('div', 'block');
+      b.textContent = rank;
+      Object.assign(b.style, { left: PODIUM[rank].x + '%', height: PODIUM[rank].h + 'vh' });
+      return b;
+    }),
+    ...winners.map((id, i) => {
+      const nom = noms.find(n => n.id === id), f = el('div', 'fin');
+      f.innerHTML = '<img alt=""><span class="title"></span><span class="badge"></span>';
+      f.querySelector('img').src = nom.src;
+      f.querySelector('.title').textContent = nom.title;
+      f.querySelector('.badge').textContent = '#' + (i + 1);
+      f.dataset.rank = i + 1;
+      Object.assign(f.style, { left: xs[i] + '%', top: '21vh' }); // below the header
+      return f;
+    })
+  );
+  revealStep = 3;
+  $('#revealBtn').textContent = 'REVEAL';
+}
+
+$('#revealBtn').onclick = () => {
+  if (!revealStep) { bgm.pause(); return show('#setup'); } // "Main Lagi"
+  const f = $(`.fin[data-rank="${revealStep}"]`), p = PODIUM[revealStep];
+  Object.assign(f.style, { left: p.x + '%', top: 100 - p.h - FIN_H + 'vh' });
+  f.classList.add('revealed');
+  if (!--revealStep) $('#revealBtn').textContent = 'Main Lagi';
+};
+
+renderSetup();
+</script>
+</body>
+</html>
